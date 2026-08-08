@@ -1,0 +1,53 @@
+# Primary model. Every hyperparameter lives here — none are hardcoded in src/.
+name: nafnet_w32
+seed: 1337
+deterministic: true
+
+model:
+  arch: nafnet_w32
+  in_ch: 1
+  scale: 2
+  use_log_channel: true      # speckle is multiplicative; log() makes it additive
+
+data:
+  root: data
+  val_frac: 0.10             # held out BY SOURCE (index // 4), never randomly
+  lr_patch: 64               # 64 LR -> 128 HR; fits 8 GB comfortably
+  batch_size: 32
+  accum_steps: 1             # batch 32 fits in ~2.1 GB of the 8.5 GB budget
+  num_workers: 4
+  epoch_len: 3200
+  external_ratio: 1.0        # 1.0 = KLA pairs only. Lower to mix external data
+  external_glob: null        # e.g. "data/external/DIV2K/**/*.png"
+
+degradation:                 # measured in Phase 0, widened ~50% for OOD
+  L_range: [8.0, 40.0]
+  sigma_log10_range: [-3.0, -1.4]
+  a1_range: [-0.75, -0.45]
+  a2_range: [-0.40, -0.15]
+  decoupled: true
+  randomize_order: false     # the real data uses a FIXED order
+
+loss:
+  charbonnier: 1.0
+  msssim: 0.2
+  fft: 0.1
+  gradient: 0.05
+  vgg: 0.0                   # off by default; enable for the ablation
+  l2: 0.0
+
+optim:
+  lr: 2.0e-4
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  epochs: 40
+  warmup_epochs: 2
+  min_lr: 1.0e-6
+  grad_clip: 1.0
+  ema_decay: 0.999
+
+eval:
+  with_lpips: true
+  val_every: 2
+
+out_dir: experiments/runs/nafnet_w32

@@ -1,0 +1,69 @@
+# Innovation track — log-domain unrolled network (PROMPT.md Phase 6).
+#
+# Built from KLA's own unpresented appendix slide citing Monga et al. 2021 on
+# algorithm unrolling. K analytic data-fidelity steps alternating with a small
+# learnt CNN prior, in the log domain where multiplicative speckle becomes
+# additive.
+#
+# !! Read docs/FUTURE_SCOPE.md Part 0 first: we MEASURED the log-additivity
+# error and it is 46 % of the log-signal spread at the top of the measured
+# sigma range, and breaks down entirely in dark regions. The approach is worth
+# building and reporting honestly; it is not the free win the brief implies.
+#
+# Far fewer parameters than NAFNet by design — the prior CNN is shared across
+# all K steps, which is the point of unrolling (interpretability and parameter
+# efficiency), not an oversight.
+
+name: log_unrolled
+seed: 1337
+deterministic: true
+
+model:
+  arch: log_unrolled_k4
+  in_ch: 1
+  scale: 2
+  use_log_channel: false     # the whole model already works in the log domain
+
+data:
+  root: data
+  val_frac: 0.10
+  lr_patch: 64
+  batch_size: 32
+  accum_steps: 1
+  num_workers: 4
+  epoch_len: 3200
+  external_ratio: 0.60
+  external_glob: "data/external/train/**/*.png"
+  pattern_frac: 0.15
+
+degradation:
+  L_range: [8.0, 40.0]
+  sigma_log10_range: [-3.0, -1.4]
+  a1_range: [-0.75, -0.45]
+  a2_range: [-0.40, -0.15]
+  decoupled: true
+  randomize_order: false
+
+loss:
+  charbonnier: 1.0
+  msssim: 0.2
+  fft: 0.2
+  gradient: 0.10
+  vgg: 0.0
+  l2: 0.0
+
+optim:
+  lr: 3.0e-4                 # smaller model tolerates a higher rate
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  epochs: 40
+  warmup_epochs: 2
+  min_lr: 1.0e-6
+  grad_clip: 1.0
+  ema_decay: 0.999
+
+eval:
+  with_lpips: true
+  val_every: 4
+
+out_dir: experiments/runs/log_unrolled

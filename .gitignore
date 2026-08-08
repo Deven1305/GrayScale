@@ -1,0 +1,10 @@
+# The submission repo carries only what the criteria require.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+/data/
+out_sample/
+out_512/
+venv/
+.venv/

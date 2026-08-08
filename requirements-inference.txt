@@ -1,0 +1,13 @@
+# Minimal runtime for inference.py ONLY.
+#
+# Deliberately tiny: script startup is a scored quantity, and every extra
+# package is import time we pay on the clock. inference.py imports argparse,
+# glob, os, queue, sys, threading, time, numpy and torch — nothing else.
+# opencv is listed because it is imported LAZILY, and only if a PNG/TIFF input
+# is encountered; the .npy path never touches it.
+#
+# The full training environment is requirements-freeze.txt (115 packages).
+
+torch==2.11.0
+numpy==2.3.5
+opencv-python-headless==5.0.0.93

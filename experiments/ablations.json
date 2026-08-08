@@ -1,0 +1,154 @@
+{
+  "002": {
+    "label": "Charbonnier only (base)",
+    "loss": {
+      "charbonnier": 1.0,
+      "msssim": 0.0,
+      "fft": 0.0,
+      "gradient": 0.0,
+      "vgg": 0.0,
+      "l2": 0.0
+    },
+    "metrics": {
+      "psnr": 25.64330313205719,
+      "ssim": 0.6519835501909256,
+      "msssim": 0.8921826586127282,
+      "l1": 0.037136937910690906,
+      "lpips": 0.3423873450607061
+    },
+    "epochs": 12
+  },
+  "003": {
+    "label": "+ 0.2 MS-SSIM",
+    "loss": {
+      "charbonnier": 1.0,
+      "msssim": 0.2,
+      "fft": 0.0,
+      "gradient": 0.0,
+      "vgg": 0.0,
+      "l2": 0.0
+    },
+    "metrics": {
+      "psnr": 25.331635761260987,
+      "ssim": 0.6439545430243016,
+      "msssim": 0.8760321214795113,
+      "l1": 0.038866517459973694,
+      "lpips": 0.35625864267349244
+    },
+    "epochs": 12
+  },
+  "004": {
+    "label": "+ 0.1 FFT",
+    "loss": {
+      "charbonnier": 1.0,
+      "msssim": 0.2,
+      "fft": 0.1,
+      "gradient": 0.0,
+      "vgg": 0.0,
+      "l2": 0.0
+    },
+    "metrics": {
+      "psnr": 25.341360640525817,
+      "ssim": 0.6445923984050751,
+      "msssim": 0.8759784907102585,
+      "l1": 0.03881565947085619,
+      "lpips": 0.356195206195116
+    },
+    "epochs": 12
+  },
+  "005": {
+    "label": "+ 0.05 gradient (shipped w32 recipe)",
+    "loss": {
+      "charbonnier": 1.0,
+      "msssim": 0.2,
+      "fft": 0.1,
+      "gradient": 0.05,
+      "vgg": 0.0,
+      "l2": 0.0
+    },
+    "metrics": {
+      "psnr": 25.396025156974794,
+      "ssim": 0.6489229895174503,
+      "msssim": 0.8783724427223205,
+      "l1": 0.03853680626489222,
+      "lpips": 0.3544413108378649
+    },
+    "epochs": 12
+  },
+  "006": {
+    "label": "+ 0.01 VGG perceptual",
+    "loss": {
+      "charbonnier": 1.0,
+      "msssim": 0.2,
+      "fft": 0.1,
+      "gradient": 0.05,
+      "vgg": 0.01,
+      "l2": 0.0
+    },
+    "metrics": {
+      "psnr": 25.412872219085692,
+      "ssim": 0.6482544779777527,
+      "msssim": 0.8790538355708122,
+      "l1": 0.03849512222222984,
+      "lpips": 0.3508417561650276
+    },
+    "epochs": 12
+  },
+  "007": {
+    "label": "L2 instead of Charbonnier (control: should over-smooth)",
+    "loss": {
+      "charbonnier": 0.0,
+      "msssim": 0.2,
+      "fft": 0.1,
+      "gradient": 0.05,
+      "vgg": 0.0,
+      "l2": 1.0
+    },
+    "metrics": {
+      "psnr": 25.01994457244873,
+      "ssim": 0.6485158175230026,
+      "msssim": 0.8706523790955544,
+      "l1": 0.04062427831813693,
+      "lpips": 0.3558699477463961
+    },
+    "epochs": 12
+  },
+  "004b": {
+    "label": "FFT 0.1 -> 0.3 (defend high frequencies)",
+    "loss": {
+      "charbonnier": 1.0,
+      "msssim": 0.2,
+      "fft": 0.3,
+      "gradient": 0.05,
+      "vgg": 0.0,
+      "l2": 0.0
+    },
+    "metrics": {
+      "psnr": 25.445987010002135,
+      "ssim": 0.6528463251888752,
+      "msssim": 0.8795829460024833,
+      "l1": 0.03829051284119487,
+      "lpips": 0.3520337760448456
+    },
+    "epochs": 12
+  },
+  "005b": {
+    "label": "gradient 0.05 -> 0.15 (defend edges)",
+    "loss": {
+      "charbonnier": 1.0,
+      "msssim": 0.2,
+      "fft": 0.1,
+      "gradient": 0.15,
+      "vgg": 0.0,
+      "l2": 0.0
+    },
+    "metrics": {
+      "psnr": 25.48886396884918,
+      "ssim": 0.6573310859501362,
+      "msssim": 0.8820011153817177,
+      "l1": 0.03804142698645592,
+      "lpips": 0.34710712879896166
+    },
+    "epochs": 12
+  }
+}

@@ -1,0 +1,54 @@
+# Conda environment for KLA PS01 — training / analysis.
+#
+#   conda env create -f environment.yml
+#   conda activate klasr
+#
+# ⚠️ PyTorch is intentionally NOT listed here, on purpose.
+# The correct wheel depends on your GPU's compute capability, and conda will
+# happily install a CPU-only build if left to choose. Install it explicitly
+# after creating the env:
+#
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#
+# Then verify (see docs/SETUP.md §2):
+#   python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_arch_list())"
+# Your GPU's sm_XX must appear in that list.
+#
+# NOTE: this is the TRAINING environment. inference.py must import far less
+# than this — script startup is a scored quantity (brief/04 Part 5).
+
+name: klasr
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.11
+  - pip
+
+  - pip:
+      # ---- core scientific -------------------------------------------
+      - numpy<2.4
+      - scipy==1.17.1
+      - opencv-python-headless==5.0.0.93
+      - scikit-image==0.26.0
+      - scikit-learn==1.9.0
+      - pillow==12.2.0
+
+      # ---- metrics (Phase 1) -----------------------------------------
+      - torchmetrics==1.9.0      # PSNR, SSIM, MS-SSIM
+      - lpips==0.1.4             # LPIPS, AlexNet backbone
+      - pyiqa==0.1.16            # NIQE, BRISQUE, PIQE (no-reference)
+      - bm3d==4.0.3              # BM3D baseline
+
+      # ---- training ----------------------------------------------------
+      - PyYAML==6.0.3
+      - tqdm==4.70.0
+      - tensorboard==2.21.0
+
+      # ---- analysis / reporting ---------------------------------------
+      - matplotlib==3.11.1
+      - pandas==3.0.5
+
+      # ---- testing ------------------------------------------------------
+      - pytest==9.1.1

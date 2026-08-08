@@ -1,0 +1,80 @@
+{
+  "rows": [
+    {
+      "label": "NAFNet-w48",
+      "arch": "nafnet_w48",
+      "params_M": 15.2437,
+      "ms_per_image": 4.623932812592102,
+      "psnr": 26.41488447189331,
+      "ssim": 0.7333366677165032,
+      "lpips": 0.24550172910094262
+    },
+    {
+      "label": "NAFNet-w32",
+      "arch": "nafnet_w32",
+      "params_M": 4.95338,
+      "ms_per_image": 2.8425984373825486,
+      "psnr": 25.866783022880554,
+      "ssim": 0.7049921147525311,
+      "lpips": 0.30063242837786674
+    },
+    {
+      "label": "SAFMN",
+      "arch": "safmn",
+      "params_M": 0.224896,
+      "ms_per_image": 3.419307812691841,
+      "psnr": 26.06420204639435,
+      "ssim": 0.7171893358230591,
+      "lpips": 0.2947843946516514
+    },
+    {
+      "label": "Log-unrolled (K=4)",
+      "arch": "log_unrolled_k4",
+      "params_M": 0.066238,
+      "ms_per_image": 4.217401562527812,
+      "psnr": 25.872054290771484,
+      "ssim": 0.7060687132179737,
+      "lpips": 0.3207017548382282
+    },
+    {
+      "label": "bicubic_x2",
+      "arch": "classical",
+      "params_M": 0.0,
+      "ms_per_image": 381.10751999999286,
+      "psnr": 23.066831827163696,
+      "ssim": 0.5129481953879197,
+      "lpips": 0.4424705463151137
+    },
+    {
+      "label": "bm3d+bicubic_x2",
+      "arch": "classical",
+      "params_M": 0.0,
+      "ms_per_image": 889.0545650000302,
+      "psnr": 25.955782397588095,
+      "ssim": 0.6526727460324764,
+      "lpips": 0.557648426728944
+    }
+  ],
+  "chosen": {
+    "label": "NAFNet-w48",
+    "arch": "nafnet_w48",
+    "params_M": 15.2437,
+    "ms_per_image": 4.623932812592102,
+    "psnr": 26.41488447189331,
+    "ssim": 0.7333366677165032,
+    "lpips": 0.24550172910094262
+  },
+  "best": {
+    "label": "NAFNet-w48",
+    "arch": "nafnet_w48",
+    "params_M": 15.2437,
+    "ms_per_image": 4.623932812592102,
+    "psnr": 26.41488447189331,
+    "ssim": 0.7333366677165032,
+    "lpips": 0.24550172910094262
+  },
+  "rule": {
+    "psnr_noise_dB": 0.15,
+    "ssim_noise": 0.005
+  }
+}

@@ -1,0 +1,56 @@
+name: abl_006
+seed: 1337
+deterministic: true
+model:
+  arch: nafnet_w32
+  in_ch: 1
+  scale: 2
+  use_log_channel: true
+data:
+  root: data
+  val_frac: 0.1
+  lr_patch: 64
+  batch_size: 32
+  accum_steps: 1
+  num_workers: 4
+  epoch_len: 3200
+  external_ratio: 1.0
+  external_glob: null
+  pattern_frac: 0.0
+degradation:
+  L_range:
+  - 8.0
+  - 40.0
+  sigma_log10_range:
+  - -3.0
+  - -1.4
+  a1_range:
+  - -0.75
+  - -0.45
+  a2_range:
+  - -0.4
+  - -0.15
+  decoupled: true
+  randomize_order: false
+loss:
+  charbonnier: 1.0
+  msssim: 0.2
+  fft: 0.1
+  gradient: 0.05
+  vgg: 0.01
+  l2: 0.0
+optim:
+  lr: 0.0002
+  weight_decay: 0.0001
+  betas:
+  - 0.9
+  - 0.9
+  epochs: 12
+  warmup_epochs: 2
+  min_lr: 1.0e-06
+  grad_clip: 1.0
+  ema_decay: 0.999
+eval:
+  with_lpips: true
+  val_every: 3
+out_dir: experiments/runs/abl_006
