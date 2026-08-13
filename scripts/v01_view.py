@@ -146,6 +146,79 @@ def cmd_pair(args):
     print(f"wrote {o}")
 
 
+def cmd_compare(args):
+    """Side-by-side INPUT vs MODEL OUTPUT for any two folders of .npy files.
+
+    Works on the test set, where no ground truth exists, and on any folder you
+    have run inference over.
+    """
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    ind, outd = Path(args.input_dir), Path(args.output_dir)
+    ins = sorted(ind.glob("*.npy"))[args.start:args.start + args.count]
+    if not ins:
+        raise SystemExit(f"no .npy files in {ind}")
+
+    rows = []
+    for f in ins:
+        o = outd / f.name
+        if o.exists():
+            rows.append((f.stem, np.load(f), np.load(o)))
+    if not rows:
+        raise SystemExit(f"no matching outputs in {outd}")
+
+    n = len(rows)
+    fig, ax = plt.subplots(n, 3, figsize=(12, 3.7 * n))
+    ax = np.atleast_2d(ax)
+    for r, (name, lo, hi) in enumerate(rows):
+        big = np.kron(lo, np.ones((2, 2)))          # nearest x2, same size as out
+        cs = min(96, hi.shape[0])
+        best, by, bx = -1, 0, 0
+        for y in range(0, hi.shape[0] - cs + 1, 24):
+            for x in range(0, hi.shape[1] - cs + 1, 24):
+                v = hi[y:y + cs, x:x + cs].std()
+                if v > best:
+                    best, by, bx = v, y, x
+        nl = "\n"
+        panels = [
+            (big, f"INPUT {lo.shape[0]}x{lo.shape[1]}{nl}"
+                  f"range [{lo.min():.2f}, {lo.max():.2f}]", "#E76F51"),
+            (hi, f"MODEL OUTPUT {hi.shape[0]}x{hi.shape[1]}{nl}"
+                 f"range [{hi.min():.2f}, {hi.max():.2f}]", "#2A9D8F"),
+            (hi[by:by + cs, bx:bx + cs], "OUTPUT, zoomed", "#14213D"),
+        ]
+        for c, (img, title, col) in enumerate(panels):
+            ax[r, c].imshow(img, cmap="gray", vmin=0, vmax=1,
+                            interpolation="nearest")
+            ax[r, c].set_title(title, fontsize=10, color=col, fontweight="bold")
+            ax[r, c].set_xticks([])
+            ax[r, c].set_yticks([])
+        ax[r, 0].set_ylabel(name, fontsize=9)
+    fig.suptitle(f"{ind}  ->  {outd}", fontsize=12)
+    fig.tight_layout()
+    PREVIEW.mkdir(parents=True, exist_ok=True)
+    o = PREVIEW / f"compare_{ind.name}_{args.start}.png"
+    fig.savefig(o, dpi=140, bbox_inches="tight")
+    plt.close(fig)
+    print(f"wrote {o}")
+    print("Open that PNG to see input vs model output side by side.")
+
+
+def cmd_topng(args):
+    """Convert ANY folder of .npy to browsable PNG. Works on inputs, outputs,
+    anything."""
+    import cv2
+    src, dst = Path(args.src), Path(args.dst)
+    dst.mkdir(parents=True, exist_ok=True)
+    files = sorted(src.glob("*.npy"))[:args.limit] if args.limit else sorted(src.glob("*.npy"))
+    for f in files:
+        cv2.imwrite(str(dst / f"{f.stem}.png"), to_png_array(np.load(f)))
+    print(f"wrote {len(files)} PNGs to {dst}")
+    print("Open that folder in File Explorer and browse with the arrow keys.")
+    print("NOTE: values outside [0,1] are clipped for display only.")
+
+
 def cmd_stats(args):
     gt = load("train_gt", args.index)
     lr = load("train_lr", args.index)
@@ -185,6 +258,19 @@ def main():
     p.add_argument("--cx", type=int, default=96)
     p.add_argument("--cy", type=int, default=96)
     p.set_defaults(func=cmd_pair)
+
+    p = sub.add_parser("compare", help="INPUT vs MODEL OUTPUT, side by side")
+    p.add_argument("--input_dir", required=True)
+    p.add_argument("--output_dir", required=True)
+    p.add_argument("--start", type=int, default=0)
+    p.add_argument("--count", type=int, default=4)
+    p.set_defaults(func=cmd_compare)
+
+    p = sub.add_parser("topng", help="convert ANY folder of .npy to PNG")
+    p.add_argument("--src", required=True)
+    p.add_argument("--dst", required=True)
+    p.add_argument("--limit", type=int, default=0)
+    p.set_defaults(func=cmd_topng)
 
     p = sub.add_parser("stats", help="numeric summary of one sample")
     p.add_argument("--index", type=int, default=0)
