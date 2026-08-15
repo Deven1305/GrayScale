@@ -104,10 +104,11 @@ class NAFBlock(nn.Module):
 class NAFNetSR(nn.Module):
     def __init__(self, in_ch=1, width=32, middle_blk_num=8,
                  enc_blk_nums=(2, 2, 4), dec_blk_nums=(2, 2, 2), scale=2,
-                 use_log_channel=True):
+                 use_log_channel=True, input_transform="log"):
         super().__init__()
         self.scale = scale
         self.use_log_channel = use_log_channel
+        self.input_transform = input_transform
         stem_in = in_ch * (2 if use_log_channel else 1)
         self.intro = nn.Conv2d(stem_in, width, 3, padding=1)
         self.encoders, self.downs = nn.ModuleList(), nn.ModuleList()
@@ -135,7 +136,10 @@ class NAFNetSR(nn.Module):
         pw = (self.padder_size - w % self.padder_size) % self.padder_size
         x = F.pad(inp, (0, pw, 0, ph), mode="reflect") if (ph or pw) else inp
         if self.use_log_channel:
-            x = torch.cat([x, torch.log(x.clamp_min(1e-3))], dim=1)
+            if getattr(self, "input_transform", "log") == "asinh":
+                x = torch.cat([x, torch.asinh(x / 0.1)], dim=1)
+            else:
+                x = torch.cat([x, torch.log(x.clamp_min(1e-3))], dim=1)
         x = self.intro(x)
         skips = []
         for enc, down in zip(self.encoders, self.downs):
@@ -198,10 +202,11 @@ class SAFMNSR(nn.Module):
             return x + self.ccm(self.n2(x))
 
     def __init__(self, in_ch=1, dim=36, n_blocks=8, scale=2,
-                 use_log_channel=True):
+                 use_log_channel=True, input_transform="log"):
         super().__init__()
         self.scale = scale
         self.use_log_channel = use_log_channel
+        self.input_transform = input_transform
         stem_in = in_ch * (2 if use_log_channel else 1)
         self.to_feat = nn.Conv2d(stem_in, dim, 3, padding=1)
         self.feats = nn.Sequential(*[SAFMNSR._Blk(dim) for _ in range(n_blocks)])
@@ -213,7 +218,10 @@ class SAFMNSR(nn.Module):
                                align_corners=False)
         x = inp
         if self.use_log_channel:
-            x = torch.cat([x, torch.log(x.clamp_min(1e-3))], dim=1)
+            if getattr(self, "input_transform", "log") == "asinh":
+                x = torch.cat([x, torch.asinh(x / 0.1)], dim=1)
+            else:
+                x = torch.cat([x, torch.log(x.clamp_min(1e-3))], dim=1)
         x = self.feats(self.to_feat(x))
         return anchor + self.shuffle(self.sr_head(x))
 
@@ -341,7 +349,8 @@ def main():
                       mmap=True)
     arch = ckpt.get("arch", "nafnet_w32")
     model = ARCHS[arch](in_ch=ckpt.get("in_ch", 1), scale=ckpt.get("scale", 2),
-                        use_log_channel=ckpt.get("use_log_channel", True))
+                        use_log_channel=ckpt.get("use_log_channel", True),
+                        input_transform=ckpt.get("input_transform", "log"))
     model.load_state_dict(ckpt["state_dict"])
     model = model.to(dev).eval()
     if use_cuda:

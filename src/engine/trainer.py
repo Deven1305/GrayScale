@@ -118,6 +118,7 @@ class Trainer:
             "scheduler_state_dict": self.sched.state_dict() if self.sched else None,
             "epoch": epoch,
             "config": self.cfg,
+            "input_transform": getattr(self.model, "input_transform", "log"),
             "git_commit": git_hash(),
             "metrics": metrics,
             "seed": self.cfg.get("seed"),

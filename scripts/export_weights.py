@@ -45,6 +45,7 @@ def main():
         "in_ch": cfg["model"]["in_ch"],
         "scale": cfg["model"]["scale"],
         "use_log_channel": cfg["model"]["use_log_channel"],
+        "input_transform": cfg["model"].get("input_transform", "log"),
         # Provenance, so a shipped weight file can always be traced back.
         # Everything here must be a PLAIN python type: inference.py loads with
         # weights_only=True, which rejects arbitrary classes. torch.__version__

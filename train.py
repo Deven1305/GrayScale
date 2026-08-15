@@ -142,7 +142,8 @@ def main():
     model = build_model(cfg["model"]["arch"],
                         in_ch=cfg["model"]["in_ch"],
                         scale=cfg["model"]["scale"],
-                        use_log_channel=cfg["model"]["use_log_channel"])
+                        use_log_channel=cfg["model"]["use_log_channel"],
+                        input_transform=cfg["model"].get("input_transform", "log"))
     n_par = count_params(model)
     print(f"[model] {cfg['model']['arch']}  params={n_par/1e6:.2f}M")
     cfg["param_count"] = n_par

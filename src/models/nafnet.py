@@ -22,10 +22,12 @@ from .blocks import LayerNorm2d, NAFBlock, icnr_
 class NAFNetSR(nn.Module):
     def __init__(self, in_ch=1, width=32, middle_blk_num=8,
                  enc_blk_nums=(2, 2, 4), dec_blk_nums=(2, 2, 2),
-                 scale=2, use_log_channel=True, drop_out=0.0):
+                 scale=2, use_log_channel=True, drop_out=0.0,
+                 input_transform="log"):
         super().__init__()
         self.scale = scale
         self.use_log_channel = use_log_channel
+        self.input_transform = input_transform
         self.out_ch = in_ch
         stem_in = in_ch * (2 if use_log_channel else 1)
 
@@ -71,6 +73,8 @@ class NAFNetSR(nn.Module):
         # speckle is multiplicative -> log makes it additive.
         # clamp_min only guards the log's domain; it does not clip the signal
         # that reaches the residual path.
+        if getattr(self, "input_transform", "log") == "asinh":
+            return torch.cat([x, torch.asinh(x / 0.1)], dim=1)
         return torch.cat([x, torch.log(x.clamp_min(1e-3))], dim=1)
 
     def check_image_size(self, x):
