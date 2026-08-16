@@ -15,7 +15,8 @@ never seen during training. Metrics at `data_range=1.0`.
 |---|---|---|---|
 | Bicubic ×2 *(floor)* | 23.067 | 0.5129 | 0.4425 |
 | BM3D + bicubic ×2 | 25.956 | 0.6527 | 0.5576 |
-| **NAFNet-w48 (ours)** | **26.415** | **0.7333** | **0.2455** |
+| NAFNet-w48, v1 loss | 26.415 | 0.7333 | 0.2455 |
+| **NAFNet-w48, HF-weighted loss (shipped)** | **26.616** | **0.7344** | **0.2244** |
 
 Ahead of both baselines on all three scored metrics. Note BM3D's LPIPS (0.558)
 is *worse than plain bicubic* (0.443): it buys PSNR by over-smoothing, which
@@ -27,39 +28,44 @@ degradation, since KLA withholds the test GT):
 
 | Family | PSNR ↑ | SSIM ↑ | LPIPS ↓ |
 |---|---|---|---|
-| Urban100 — buildings, the OOD case KLA named | 24.432 | 0.7750 | 0.2204 |
-| BSD100 — natural scenes | 26.422 | 0.7506 | 0.2494 |
-| Set14 | 26.655 | 0.7643 | 0.2110 |
+| Urban100 — buildings, the OOD case KLA named | 24.587 | 0.7792 | 0.2147 |
+| BSD100 — natural scenes | 26.510 | 0.7508 | 0.2543 |
+| Set14 | 26.795 | 0.7671 | 0.2071 |
 
-Urban100 drops **1.98 dB** against in-distribution — a genuine generalisation
-penalty, reported rather than hidden.
+Urban100 drops **2.03 dB** against in-distribution — a genuine generalisation
+penalty, reported rather than hidden. BSD100 LPIPS is **2.0 % worse** than the
+v1 loss; every other split improved. Both are stated rather than dropped.
 
 ---
 
-## ⚡ Quick start — the exact command to run
+## ⚡ How to run — pick your situation
+
+Three paths. **They do not overlap — follow exactly one.**
+Every block below is copy-paste as-is. No file needs editing, ever.
+
+---
+
+### ▶ A. EVALUATORS — you have an NVIDIA GPU
+
+This is the scored path. Four commands, start to finish.
 
 ```bash
 git clone https://github.com/Deven1305/GrayScale.git
 cd GrayScale
+git lfs install && git lfs pull
 pip install -r requirements-inference.txt
-python inference.py --input_dir <test_images_dir> --output_dir <output_dir>
 ```
 
-That is the whole contract. **Zero manual edits.** Weights load from a path
-relative to the script.
-
-Try it immediately on the six images shipped in `sample_test/` — no dataset
-download required:
+Then run it on your test directory:
 
 ```bash
-python inference.py --input_dir sample_test --output_dir out_sample
+python inference.py --input_dir <YOUR_TEST_DIR> --output_dir <YOUR_OUTPUT_DIR>
 ```
 
-**On the released test set:**
+That is the whole contract. **Zero manual edits.** The GPU is detected
+automatically; weights load from a path relative to the script.
 
-```bash
-python inference.py --input_dir data/Test_NoisyLR/NoisyLR --output_dir outputs
-```
+Expected output:
 
 ```
 [info] 400 input images
@@ -68,26 +74,141 @@ python inference.py --input_dir data/Test_NoisyLR/NoisyLR --output_dir outputs
 [time] startup 1.4s | warmup 0.03s | total 9.0s | 44.4 img/s
 ```
 
-### Input and output
+**Verify it works before pointing it at real data** — six images ship in the
+repo, no dataset download needed:
+
+```bash
+python inference.py --input_dir sample_test --output_dir out_sample
+```
+
+Should print `wrote 6/6 images` in a few seconds.
+
+> ⚠️ **`git lfs pull` is not optional.** The weights are stored in Git LFS.
+> Without it, `weights/model_fp16.pt` arrives as a ~130-byte text pointer and
+> the run fails. Check with `ls -la weights/` — it must be **~30 MB**.
+
+---
+
+### ▶ B. CPU ONLY — no NVIDIA GPU
+
+Identical commands; the script detects the absence of a GPU and switches to CPU
+by itself. Only the install differs.
+
+```bash
+git clone https://github.com/Deven1305/GrayScale.git
+cd GrayScale
+git lfs install && git lfs pull
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements-inference.txt
+```
+
+```bash
+python inference.py --input_dir sample_test --output_dir out_sample
+```
+
+To force CPU explicitly:
+
+```bash
+python inference.py --input_dir sample_test --output_dir out_sample --device cpu
+```
+
+Roughly **0.6 s per image** on CPU versus 0.02 s on GPU — the full 400-image
+test set takes about 4 minutes. Results are numerically equivalent.
+
+---
+
+### ▶ C. GOOGLE COLAB — free T4 GPU
+
+First: **Runtime → Change runtime type → T4 GPU → Save.**
+Then paste these five cells in order.
+
+**Cell 1 — confirm the GPU is attached**
+
+```python
+import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))
+```
+
+Expect something like `2.11.0+cu128 True Tesla T4`. If it says `False`, the
+runtime type was not changed.
+
+**Cell 2 — clone**
+
+```python
+!git clone https://github.com/Deven1305/GrayScale.git
+%cd GrayScale
+```
+
+**Cell 3 — fetch the real weights**
+
+```python
+!git lfs install && git lfs pull
+!ls -la weights/
+```
+
+`model_fp16.pt` must be **~30 MB**. If it is ~130 bytes, LFS did not run.
+
+**Cell 4 — install**
+
+```python
+!pip install -q -r requirements-inference.txt
+```
+
+> ⚠️ **Do NOT `pip install torch` on Colab.** It already ships a matching CUDA
+> build; replacing it breaks the runtime. A `numba`/`numpy` version warning here
+> is harmless — nothing in this pipeline uses numba.
+
+**Cell 5 — run, and view the result**
+
+```python
+!python inference.py --input_dir sample_test --output_dir out_npy --num_workers 2
+
+import numpy as np, matplotlib.pyplot as plt, glob
+a = np.load(sorted(glob.glob('sample_test/*.npy'))[0])
+b = np.load(sorted(glob.glob('out_npy/*.npy'))[0])
+fig, ax = plt.subplots(1, 2, figsize=(11, 5))
+ax[0].imshow(a, cmap='gray', vmin=0, vmax=1); ax[0].set_title(f'input {a.shape}')
+ax[1].imshow(b, cmap='gray', vmin=0, vmax=1); ax[1].set_title(f'restored {b.shape}')
+for x in ax: x.axis('off')
+plt.show()
+```
+
+`--num_workers 2` matters: Colab gives 2 CPU cores, and the default of 4 spawns
+workers that each re-import torch.
+
+---
+
+## Input and output
 
 | | |
 |---|---|
 | Input formats | `.npy` float32 (what KLA ships), `.png`, `.tif` |
 | Input sizes | **128×128 and 256×256** — both handled, bucketed and warmed separately |
 | Output | same base filename, **exactly 2× the input**, clamped to [0,1] |
-| No GPU? | Runs on CPU automatically. See `docs/02_RUN_WITHOUT_GPU.md` |
+| Output format | matches the input by default; add `--output_format png` for viewable images |
+
+To get browsable PNGs instead of `.npy`:
+
+```bash
+python inference.py --input_dir sample_test --output_dir out_png --output_format png
+```
 
 ---
 
-## Installation
+## Troubleshooting
 
-**Inference only — 3 packages:**
+| Symptom | Cause | Fix |
+|---|---|---|
+| `weights/model_fp16.pt` is ~130 bytes | Git LFS pointer, not the file | `git lfs install && git lfs pull` |
+| `ModuleNotFoundError: torchmetrics` | Wrong environment active | Only tests need it: `pip install -r requirements.txt` |
+| `torch.cuda.is_available()` is `False` on a GPU box | CPU-only wheel installed | Reinstall from the CUDA index (§ Training below) |
+| `CUDA error: no kernel image` on Colab | torch was reinstalled | Restart runtime; do not `pip install torch` |
+| Very slow on CPU | Expected | ~0.6 s/image vs ~0.02 s on GPU |
 
-```bash
-pip install -r requirements-inference.txt
-```
+---
 
-**Full training environment:**
+## Training environment (only if you want to retrain)
+
+Inference needs none of this.
 
 ```bash
 conda create -y -n klasr python=3.11 pip && conda activate klasr
@@ -95,9 +216,8 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 pip install -r requirements.txt
 ```
 
-⚠️ Install PyTorch from a CUDA index matching your GPU's compute capability. A
-plain `pip install torch` silently gives a CPU-only wheel. Details and
-verification steps: `docs/01_SETUP.md` §2.
+⚠️ Install PyTorch from a CUDA index matching your GPU. A plain
+`pip install torch` silently gives a CPU-only wheel. See `docs/01_SETUP.md` §2.
 
 **Docker:**
 
@@ -157,8 +277,20 @@ BatchNorm for OOD stability; fully convolutional so both input sizes work.
 ### Loss
 
 ```
-1.0·Charbonnier + 0.2·(1 − MS-SSIM) + 0.2·FFT + 0.10·gradient
+1.0·Charbonnier + 0.6·FFT(high-frequency weighted) + 0.5·high-pass
+              + 0.15·(1 − MS-SSIM) + 0.05·gradient + 0.05·VGG
 ```
+
+Those weights are measured, not guessed. `scripts/f26_loss_spectrum.py`
+backpropagates each term alone and reports what fraction of its gradient lands
+in the high half of the spectrum. The **original** recipe scored **49.11 %** —
+*less* than plain Charbonnier at 52.82 %, meaning the two terms added for
+sharpness were making the output softer. The Sobel `gradient` term measured
+22.58 %, thirty points below the term it was meant to sharpen.
+
+Rebalancing to **61.31 %** bought **+0.20 dB PSNR and −8.6 % LPIPS at identical
+inference cost** — same architecture, same 15.24 M parameters, same 4.6 ms per
+image. Full derivation: `docs/13_RESOLUTION_IMPROVEMENT.md`.
 
 **No adversarial loss** — the spec forbids "artificial patterns or ringing",
 and GAN training costs PSNR and SSIM, two of the three scored metrics. Ablation
@@ -172,10 +304,10 @@ evidence for each term: `docs/09_ABLATION_RESULTS.md`.
 python scripts/precrop_patches.py                    # pack the data
 python scripts/build_external_data.py                # DIV2K + OOD families
 python scripts/run_baselines.py --limit 120          # the floor
-python train.py --config configs/nafnet_w48.yaml     # ~1.6 h on an 8 GB GPU
-python scripts/export_weights.py --ckpt experiments/runs/nafnet_w48/best.pt \
+python train.py --config configs/nafnet_w48_sharp.yaml   # ~2.5 h on an 8 GB GPU
+python scripts/export_weights.py --ckpt experiments/runs/nafnet_w48_sharp/best.pt \
                                  --out weights/model_fp16.pt
-python evaluate.py --ckpt experiments/runs/nafnet_w48/best.pt --proxy-ood \
+python evaluate.py --ckpt experiments/runs/nafnet_w48_sharp/best.pt --proxy-ood \
        --ood data/external/ood/Urban100 data/external/ood/BSD100
 python inference.py --input_dir data/Test_NoisyLR/NoisyLR --output_dir outputs
 ```
