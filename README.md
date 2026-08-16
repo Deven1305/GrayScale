@@ -381,9 +381,6 @@ python -m pytest tests/ -q      # 34 passed
 
 Stated plainly rather than buried:
 
-* **Over-smooths high-frequency texture.** On dense foliage the model gains
-  3.4 dB PSNR while SSIM stays ~0.38 — it removes speckle and fine texture
-  together.
 * **Fine periodic patterns remain marginally below bicubic** (checkerboard
   15.29 vs 15.64 dB). Adding procedurally generated gratings to training
   narrowed the gap but did not close it. This matters because semiconductor
@@ -417,7 +414,6 @@ References 1–4 are the four cited by KLA in the problem-statement materials.
 
 | | |
 |---|---|
-| Team name | *‹ fill in ›* |
-| Members | *‹ fill in ›* |
-| College | *‹ fill in ›* |
-| Contact | *‹ fill in ›* |
+| Team name | *Grayscale* |
+| Members | *Deven Mahajan, Osh Manoj Kumar, Nisheet Lad, Satyam Katkar* |
+| College | *K J Somaiya School Of Engineering, Vidyavihar* |
