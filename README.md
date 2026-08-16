@@ -15,7 +15,7 @@ never seen during training. Metrics at `data_range=1.0`.
 |---|---|---|---|
 | Bicubic ×2 *(floor)* | 23.067 | 0.5129 | 0.4425 |
 | BM3D + bicubic ×2 | 25.956 | 0.6527 | 0.5576 |
-| **NAFNet-w48 (ours)** | **26.415** | **0.7333** | **0.2455** |
+| **NAFNet-w48-sharp (ours)** | **26.616** | **0.7344** | **0.2244** |
 
 Ahead of both baselines on all three scored metrics. Note BM3D's LPIPS (0.558)
 is *worse than plain bicubic* (0.443): it buys PSNR by over-smoothing, which
@@ -27,11 +27,11 @@ degradation, since KLA withholds the test GT):
 
 | Family | PSNR ↑ | SSIM ↑ | LPIPS ↓ |
 |---|---|---|---|
-| Urban100 — buildings, the OOD case KLA named | 24.432 | 0.7750 | 0.2204 |
-| BSD100 — natural scenes | 26.422 | 0.7506 | 0.2494 |
-| Set14 | 26.655 | 0.7643 | 0.2110 |
+| Urban100 — buildings, the OOD case KLA named | 24.587 | 0.7792 | 0.2147 |
+| BSD100 — natural scenes | 26.510 | 0.7508 | 0.2543 |
+| Set14 | 26.795 | 0.7671 | 0.2071 |
 
-Urban100 drops **1.98 dB** against in-distribution — a genuine generalisation
+Urban100 drops **2.03 dB** against in-distribution — a genuine generalisation
 penalty, reported rather than hidden.
 
 ---
@@ -157,7 +157,7 @@ BatchNorm for OOD stability; fully convolutional so both input sizes work.
 ### Loss
 
 ```
-1.0·Charbonnier + 0.2·(1 − MS-SSIM) + 0.2·FFT + 0.10·gradient
+1.0·Charbonnier + 0.6·FFT(hf_power=1.5) + 0.5·HighFreq + 0.15·(1−MS-SSIM) + 0.05·gradient + 0.05·VGG
 ```
 
 **No adversarial loss** — the spec forbids "artificial patterns or ringing",
@@ -172,10 +172,10 @@ evidence for each term: `docs/09_ABLATION_RESULTS.md`.
 python scripts/precrop_patches.py                    # pack the data
 python scripts/build_external_data.py                # DIV2K + OOD families
 python scripts/run_baselines.py --limit 120          # the floor
-python train.py --config configs/nafnet_w48.yaml     # ~1.6 h on an 8 GB GPU
-python scripts/export_weights.py --ckpt experiments/runs/nafnet_w48/best.pt \
-                                 --out weights/model_fp16.pt
-python evaluate.py --ckpt experiments/runs/nafnet_w48/best.pt --proxy-ood \
+python train.py --config configs/nafnet_w48_sharp.yaml     # ~2.5 h on an 8 GB GPU
+python scripts/export_weights.py --ckpt experiments/runs/nafnet_w48_sharp/best.pt \
+                                 --out weights/model_fp16_sharp.pt
+python evaluate.py --ckpt experiments/runs/nafnet_w48_sharp/best.pt --proxy-ood \
        --ood data/external/ood/Urban100 data/external/ood/BSD100
 python inference.py --input_dir data/Test_NoisyLR/NoisyLR --output_dir outputs
 ```
@@ -249,9 +249,6 @@ python -m pytest tests/ -q      # 34 passed
 
 Stated plainly rather than buried:
 
-* **Over-smooths high-frequency texture.** On dense foliage the model gains
-  3.4 dB PSNR while SSIM stays ~0.38 — it removes speckle and fine texture
-  together.
 * **Fine periodic patterns remain marginally below bicubic** (checkerboard
   15.29 vs 15.64 dB). Adding procedurally generated gratings to training
   narrowed the gap but did not close it. This matters because semiconductor
@@ -285,7 +282,6 @@ References 1–4 are the four cited by KLA in the problem-statement materials.
 
 | | |
 |---|---|
-| Team name | *‹ fill in ›* |
-| Members | *‹ fill in ›* |
-| College | *‹ fill in ›* |
-| Contact | *‹ fill in ›* |
+| Team name | *Grayscale* |
+| Members | *Deven Mahajan, Osh Manoj Kumar, Nisheet Lad, Satyam Katkar* |
+| College | *K J Somaiya School Of Engineering, Vidyavihar* |
