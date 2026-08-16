@@ -1,0 +1,26 @@
+{
+  "n_images": 64,
+  "shape": [
+    256,
+    256
+  ],
+  "high_band_cutoff": 0.5,
+  "detail_removed": 0.6,
+  "high_band_energy_share": 0.2557026445865631,
+  "high_band_bin_share": 0.6075278520584106,
+  "hf_gradient_share": {
+    "charbonnier": 0.5282233953475952,
+    "msssim": 0.321208655834198,
+    "fft_hf_power_0_v1": 0.6081126928329468,
+    "fft_hf_power_1": 0.7600936889648438,
+    "fft_hf_power_1.5": 0.8118721842765808,
+    "fft_hf_power_2": 0.8496836423873901,
+    "gradient_sobel": 0.22582297027111053,
+    "highfreq_sigma_1": 0.6704738140106201
+  },
+  "recipe_projection": {
+    "v1 shipped (nafnet_w48.yaml)": 0.49111330807209014,
+    "charbonnier alone (reference)": 0.5282233953475952,
+    "v2 sharp (nafnet_w48_sharp.yaml)": 0.6130678520902344
+  }
+}

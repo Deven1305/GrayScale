@@ -17,6 +17,7 @@ You do not need all of them — the table says who each one is for.
 | **10** | `10_IMPROVEMENTS.md` | Know the weaknesses and how to validate without ground truth | 20 min |
 | **11** | `11_FUTURE_SCOPE.md` | Pick up the next piece of work | 20 min |
 | **12** | `12_WHY_NOT_AN_LLM.md` | Know why this is a 15 M CNN and not a fine-tuned LLM/VLM | 25 min |
+| **13** | `13_RESOLUTION_IMPROVEMENT.md` | Fix the softness: why it blurs texture, and the inference flow | 25 min |
 
 ## If you only have 20 minutes
 
@@ -33,6 +34,7 @@ honest list of what the model gets wrong.
 | Someone auditing the method | **05**, **07**, **08**, **09** |
 | Someone continuing the research | **10**, **11** |
 | Asking "why not just fine-tune an LLM?" | **12** |
+| Making the output sharper, or tracing the inference flow | **13** |
 
 Numbers, tables and figures throughout come from
 `../experiments/EXPERIMENT_LOG.md`; nothing in documents **01-11** is estimated.

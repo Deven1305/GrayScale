@@ -1,0 +1,110 @@
+# nafnet_w48_sharp — same model, sharper training signal.
+#
+# WHY THIS CONFIG EXISTS
+# ----------------------
+# The v1 run (nafnet_w48.yaml) removes noise well but leaves textured regions
+# visibly soft: see docs/preview/compare_NoisyLR_0.png, row 2. Documented as a
+# known limitation ("over-smooths high-frequency texture").
+#
+# scripts/f26_loss_spectrum.py measured WHY, on 64 real GT images. Share of
+# each loss term's gradient landing in the high half of the spectrum:
+#
+#     charbonnier   52.82%      <- the dominant term, w=1.0
+#     msssim        32.12%      <- 20.7 points BELOW charbonnier
+#     fft (v1)      60.81%      <- only 8.0 points above; nearly redundant
+#     gradient      22.58%      <- 30.2 points BELOW. The "keep edges sharp"
+#                                  term is the most low-frequency-biased of all
+#
+#     v1 recipe, weight-averaged:   49.11%
+#     plain charbonnier alone:      52.82%
+#
+# The v1 composite targets high frequencies WORSE than using no sharpness terms
+# at all. That is the root cause of the softness, and it is a loss problem, not
+# an architecture problem.
+#
+# This config keeps the architecture, the parameter count and the inference
+# cost EXACTLY as shipped. Only the training signal changes:
+#
+#     v2 recipe, weight-averaged:   61.31%   (+12.2 points vs v1)
+#
+# WHAT CHANGED, AND WHY
+#   fft 0.2 -> 0.6, hf_power 0 -> 1.5   radial weighting so the term actually
+#                                       emphasises the band it was added for
+#   highfreq 0.0 -> 0.5                 NEW: Charbonnier on the high-pass
+#                                       residual. Local counterpart to the
+#                                       spectral term
+#   gradient 0.1 -> 0.05                measured as the most LF-biased term;
+#                                       it sharpens step edges, which already
+#                                       work, and does nothing for texture
+#   msssim 0.2 -> 0.15                  LF-biased, but kept: SSIM is scored
+#   vgg 0.0 -> 0.05                     LPIPS is scored and this is its
+#                                       trainable proxy. Train-only; torchvision
+#                                       never enters inference
+#   epochs 40 -> 60                     the sharpness terms converge later than
+#                                       plain L1; the 12-epoch ablation that
+#                                       rejected them was measuring early
+#                                       convergence, not final quality
+#
+# EXPECT A PSNR/DETAIL TRADE. Pushing gradient into the high band buys visible
+# resolution and should improve LPIPS and SSIM; it may cost a little PSNR,
+# because PSNR rewards hedging toward the conditional mean. Compare against
+# nafnet_w48 on all three metrics before shipping either.
+name: nafnet_w48_sharp
+seed: 1337
+deterministic: true
+model:
+  arch: nafnet_w48
+  in_ch: 1
+  scale: 2
+  use_log_channel: true
+data:
+  root: data
+  val_frac: 0.1
+  lr_patch: 96
+  batch_size: 32
+  accum_steps: 1
+  num_workers: 4
+  epoch_len: 4800
+  external_ratio: 0.6
+  external_glob: data/external/train/**/*.png
+  pattern_frac: 0.15
+degradation:
+  L_range:
+  - 8.0
+  - 40.0
+  sigma_log10_range:
+  - -3.0
+  - -1.4
+  a1_range:
+  - -0.75
+  - -0.45
+  a2_range:
+  - -0.4
+  - -0.15
+  decoupled: true
+  randomize_order: false
+loss:
+  charbonnier: 1.0
+  msssim: 0.15
+  fft: 0.6
+  fft_hf_power: 1.5
+  highfreq: 0.5
+  highfreq_sigma: 1.0
+  gradient: 0.05
+  vgg: 0.05
+  l2: 0.0
+optim:
+  lr: 0.0002
+  weight_decay: 0.0001
+  betas:
+  - 0.9
+  - 0.9
+  epochs: 60
+  warmup_epochs: 2
+  min_lr: 1.0e-06
+  grad_clip: 1.0
+  ema_decay: 0.999
+eval:
+  with_lpips: true
+  val_every: 4
+out_dir: experiments/runs/nafnet_w48_sharp

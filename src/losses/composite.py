@@ -6,12 +6,20 @@ Rationale, tied to what is actually scored (SSIM, pSNR, LPIPS):
   * Charbonnier — a smooth L1. Pure L2/MSE over-smooths, and the spec
     explicitly forbids blurring to remove noise.
   * MS-SSIM     — directly optimises one of the three scored metrics.
-  * FFT         — L1 in the frequency domain; restores the high-frequency band
-    that 2x decimation destroyed, without the ringing an adversarial loss
-    would introduce.
+  * FFT         — L1 in the frequency domain, RADIALLY WEIGHTED toward high
+    frequencies (see FFTLoss). Restores the band that 2x decimation destroyed,
+    without the ringing an adversarial loss would introduce.
+  * highfreq    — Charbonnier on the high-pass residual x - blur(x). The local,
+    spatial counterpart to the spectral term above.
   * gradient    — L1 on Sobel maps; keeps edges sharp.
-  * VGG         — optional perceptual term, proxy for LPIPS. Off by default
-    because it pulls torchvision into the training path for a small gain.
+  * VGG         — optional perceptual term, proxy for LPIPS. Off in the v1
+    recipe; ON in nafnet_w48_sharp.yaml, where recovering texture is the point.
+    Train-only — torchvision never touches inference.
+
+SHARPNESS IS A LOSS PROBLEM HERE, NOT AN ARCHITECTURE PROBLEM. Everything in
+this file is training-only: none of it changes the model, the weight file or
+the inference cost. See docs/RESOLUTION_IMPROVEMENT.md for the measurement
+that motivated the reweighting.
 
 ❌ NO adversarial loss. The spec forbids "artificial patterns or ringing", and
 GAN training costs PSNR and SSIM — two of the three scored metrics.
@@ -37,13 +45,95 @@ class CharbonnierLoss(nn.Module):
 
 
 class FFTLoss(nn.Module):
-    """L1 between the complex spectra, as real/imag stacks."""
+    """L1 between the complex spectra, optionally weighted by frequency.
+
+    WHY THE WEIGHTING EXISTS. The unweighted version of this loss (hf_power=0)
+    was in the shipped v1 recipe, and it did almost nothing for sharpness --
+    which is the opposite of why it was added.
+
+    Natural images have a roughly 1/f amplitude spectrum, so the low-frequency
+    coefficients are two to three ORDERS OF MAGNITUDE larger than the ones near
+    Nyquist. A plain L1 over all bins is therefore ~98% a statement about low
+    frequencies, which Charbonnier already supervises perfectly well. The high
+    band -- the exact band 2x decimation destroyed, the exact band that makes an
+    output look sharp -- contributes almost none of the gradient.
+
+    Weighting each bin by (radius / radius_max) ** hf_power rebalances that.
+    hf_power=1.0 cancels the 1/f falloff to first order, so every octave gets
+    comparable gradient. This is a training-only change: it alters WHERE the
+    gradient goes, not the model, so inference cost is unchanged.
+    """
+
+    def __init__(self, hf_power: float = 1.0, eps: float = 1e-8):
+        super().__init__()
+        self.hf_power = float(hf_power)
+        self.eps = eps
+        self._cache = {}
+
+    def _weight(self, h, w, device, dtype):
+        """Radial |f| map over the rfft2 grid, normalised to [0, 1], cached.
+
+        h, w are the SPATIAL dims, not the spectrum dims: rfft2 returns
+        w//2 + 1 columns, so deriving the frequency axis from the spectrum
+        width would build a grid of the wrong size.
+        """
+        key = (h, w, device, dtype)
+        wt = self._cache.get(key)
+        if wt is None:
+            fy = torch.fft.fftfreq(h, device=device, dtype=dtype).view(-1, 1)
+            fx = torch.fft.rfftfreq(w, device=device, dtype=dtype).view(1, -1)
+            r = torch.sqrt(fy * fy + fx * fx)
+            r = r / r.max().clamp_min(self.eps)
+            wt = r.pow(self.hf_power)
+            # keep DC/low bins from going to exactly zero gradient
+            wt = wt.clamp_min(0.05)[None, None, :, :, None]
+            self._cache[key] = wt
+        return wt
 
     def forward(self, pred, target):
         pf = torch.fft.rfft2(pred.float(), norm="ortho")
         tf = torch.fft.rfft2(target.float(), norm="ortho")
-        return F.l1_loss(torch.stack([pf.real, pf.imag], -1),
-                         torch.stack([tf.real, tf.imag], -1))
+        d = (torch.stack([pf.real, pf.imag], -1)
+             - torch.stack([tf.real, tf.imag], -1)).abs()
+        if self.hf_power == 0.0:
+            return d.mean()                       # identical to the v1 loss
+        wt = self._weight(pred.shape[-2], pred.shape[-1], d.device, d.dtype)
+        return (d * wt).sum() / wt.expand_as(d).sum().clamp_min(self.eps)
+
+
+class HighFrequencyLoss(nn.Module):
+    """Charbonnier on the high-pass residual: x - blur(x).
+
+    Complements FFTLoss. The spectral loss is global and phase-sensitive; this
+    one is local and says plainly "wherever the target has fine detail, the
+    prediction must have detail in the same place, of the same amplitude".
+
+    Gaussian blur via a separable fixed kernel -- 2 depthwise convs, negligible
+    cost, no learnable parameters.
+    """
+
+    def __init__(self, sigma: float = 1.0, ksize: int = 5, eps: float = 1e-3):
+        super().__init__()
+        self.eps2 = eps * eps
+        ax = torch.arange(ksize, dtype=torch.float32) - (ksize - 1) / 2
+        k = torch.exp(-(ax ** 2) / (2 * sigma * sigma))
+        k = k / k.sum()
+        self.pad = ksize // 2
+        self.register_buffer("k1d", k.view(1, 1, 1, ksize))
+
+    def _highpass(self, x):
+        c = x.shape[1]
+        kh = self.k1d.to(x.dtype).expand(c, 1, 1, -1)
+        kv = kh.transpose(-1, -2).contiguous()
+        b = F.conv2d(F.pad(x, (self.pad,) * 2 + (0, 0), mode="reflect"),
+                     kh, groups=c)
+        b = F.conv2d(F.pad(b, (0, 0) + (self.pad,) * 2, mode="reflect"),
+                     kv, groups=c)
+        return x - b
+
+    def forward(self, pred, target):
+        d = self._highpass(pred) - self._highpass(target)
+        return torch.sqrt(d * d + self.eps2).mean()
 
 
 class GradientLoss(nn.Module):
@@ -100,15 +190,18 @@ class CompositeLoss(nn.Module):
     """Weights come from the config; zero disables a term entirely."""
 
     def __init__(self, charbonnier=1.0, msssim=0.2, fft=0.1, gradient=0.05,
-                 vgg=0.0, l2=0.0):
+                 vgg=0.0, l2=0.0, highfreq=0.0, fft_hf_power=1.0,
+                 highfreq_sigma=1.0):
         super().__init__()
         self.w = {"charbonnier": charbonnier, "msssim": msssim, "fft": fft,
-                  "gradient": gradient, "vgg": vgg, "l2": l2}
+                  "gradient": gradient, "vgg": vgg, "l2": l2,
+                  "highfreq": highfreq}
         self.charb = CharbonnierLoss()
         self.ms = MSSSIMLoss() if msssim > 0 else None
-        self.fft = FFTLoss() if fft > 0 else None
+        self.fft = FFTLoss(hf_power=fft_hf_power) if fft > 0 else None
         self.grad = GradientLoss() if gradient > 0 else None
         self.vgg = VGGPerceptualLoss() if vgg > 0 else None
+        self.hif = HighFrequencyLoss(sigma=highfreq_sigma) if highfreq > 0 else None
 
     def forward(self, pred, target) -> (torch.Tensor, Dict[str, torch.Tensor]):
         """Returns (total, parts).
@@ -140,6 +233,10 @@ class CompositeLoss(nn.Module):
             v = self.grad(pred, target)
             parts["gradient"] = v.detach()
             total = total + self.w["gradient"] * v
+        if self.hif is not None:
+            v = self.hif(pred, target)
+            parts["highfreq"] = v.detach()
+            total = total + self.w["highfreq"] * v
         if self.vgg is not None:
             v = self.vgg(pred, target)
             parts["vgg"] = v.detach()

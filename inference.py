@@ -259,8 +259,97 @@ def write_image(path, arr, fmt):
                     [cv2.IMWRITE_PNG_COMPRESSION, 1])
 
 
+def header_shape(f):
+    """(H, W) without decoding the pixels. Cheap: reads the .npy header only."""
+    if f.lower().endswith(".npy"):
+        with open(f, "rb") as fh:
+            ver = np.lib.format.read_magic(fh)
+            rd = (np.lib.format.read_array_header_1_0 if ver[0] == 1
+                  else np.lib.format.read_array_header_2_0)
+            return tuple(rd(fh)[0][:2])
+    import cv2
+    im = cv2.imread(f, cv2.IMREAD_UNCHANGED)
+    if im is None:
+        raise IOError("unreadable")
+    return tuple(im.shape[:2])
+
+
+def scan_shapes(files):
+    """Header-scan every input in parallel. Returns (shapes, buckets, errors).
+
+    Serially this is 400 file opens costing pure latency before the first
+    batch can even start. The reads are I/O bound and release the GIL, so a
+    thread pool collapses them. Called on a background thread while the model
+    is still loading, which hides it behind the weight load entirely.
+    """
+    import concurrent.futures as cf
+    shapes, buckets, errors = {}, {}, []
+    with cf.ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4) * 2)) as ex:
+        for f, res in zip(files, ex.map(
+                lambda p: _try(header_shape, p), files)):
+            if isinstance(res, Exception):
+                errors.append(f"{os.path.basename(f)}: {res}")
+                continue
+            shapes[f] = res
+            buckets.setdefault(res, []).append(f)
+    return shapes, buckets, errors
+
+
+def _try(fn, arg):
+    try:
+        return fn(arg)
+    except Exception as e:                       # noqa: BLE001 - reported, not raised
+        return e
+
+
+def _read_or_zeros(p, shapes):
+    """A malformed file becomes zeros of the right shape rather than a crash."""
+    try:
+        return read_image(p)                     # NOT clipped
+    except Exception:
+        return np.zeros(shapes[p], np.float32)
+
+
+def threaded_batches(paths, shapes, batch_size, n_threads, depth=4):
+    """Yield (batch_tensor, indices) with file reads overlapped by threads.
+
+    WHY NOT A DataLoader. Its workers SPAWN on Windows/macOS, and every worker
+    re-imports torch -- measured at 35.2 s vs 16.4 s over 400 images, which is
+    why the shipped default was num_workers=0. But num_workers=0 reads inline
+    in the main loop, so reads and GPU compute are fully SERIALISED: nothing
+    overlaps at all.
+
+    Threads give the overlap without the spawn. np.load releases the GIL for
+    the actual file read, so reader threads genuinely run while the GPU is busy
+    with the previous batch. The queue is bounded so memory stays flat.
+    """
+    import concurrent.futures as cf
+    q = queue.Queue(maxsize=depth)
+
+    def produce():
+        try:
+            with cf.ThreadPoolExecutor(max_workers=n_threads) as ex:
+                for s in range(0, len(paths), batch_size):
+                    chunk = paths[s:s + batch_size]
+                    arrs = list(ex.map(lambda p: _read_or_zeros(p, shapes), chunk))
+                    q.put((torch.from_numpy(np.stack(arrs))[:, None],
+                           list(range(s, s + len(chunk)))))
+        except Exception as e:                   # noqa: BLE001 - re-raised in consumer
+            q.put(e)
+        q.put(None)
+
+    threading.Thread(target=produce, daemon=True).start()
+    while True:
+        item = q.get()
+        if item is None:
+            return
+        if isinstance(item, Exception):
+            raise item
+        yield item
+
+
 class ImageBucket(torch.utils.data.Dataset):
-    """One shape-bucket of inputs.
+    """One shape-bucket of inputs. Used only by --reader dataloader.
 
     MUST be defined at module level: Windows (and macOS) DataLoader workers
     use spawn, which pickles the dataset class by reference. A class nested
@@ -276,12 +365,7 @@ class ImageBucket(torch.utils.data.Dataset):
         return len(self.paths)
 
     def __getitem__(self, i):
-        p = self.paths[i]
-        try:
-            a = read_image(p)                    # NOT clipped
-        except Exception:
-            a = np.zeros(self.shapes[p], np.float32)
-        return torch.from_numpy(a)[None], i
+        return torch.from_numpy(_read_or_zeros(self.paths[i], self.shapes))[None], i
 
 
 def main():
@@ -299,6 +383,15 @@ def main():
                          "worker re-imports torch and that costs more than it "
                          "saves on a few hundred images; 4 where they FORK "
                          "(Linux), which is nearly free.")
+    ap.add_argument("--reader", default="auto",
+                    choices=["auto", "threads", "dataloader"],
+                    help="how input files are read. 'threads' overlaps reads "
+                         "with GPU compute using a thread pool (no spawn cost); "
+                         "'dataloader' uses torch DataLoader workers. 'auto' "
+                         "picks threads where workers would SPAWN "
+                         "(Windows/macOS) and dataloader where they FORK.")
+    ap.add_argument("--read_threads", type=int, default=8,
+                    help="reader threads when --reader threads.")
     ap.add_argument("--output_format", default="same",
                     choices=["same", "npy", "png"])
     ap.add_argument("--device", default=None)
@@ -310,12 +403,29 @@ def main():
     args = ap.parse_args()
     args.no_benchmark = not args.cudnn_benchmark
 
+    import multiprocessing as _mp
+    spawns = (_mp.get_start_method(allow_none=True) == "spawn"
+              or sys.platform in ("win32", "darwin"))
     if args.num_workers is None:
         # MEASURED on 400 images: 4 workers 35.2 s vs 0 workers 16.4 s under
         # spawn. Under fork the tradeoff reverses, so decide by start method
         # rather than hardcoding either answer.
-        import multiprocessing as _mp
-        args.num_workers = 0 if _mp.get_start_method(allow_none=True) == "spawn"             or sys.platform in ("win32", "darwin") else 4
+        args.num_workers = 0 if spawns else 4
+    if args.reader == "auto":
+        # MEASURED, and the answer was "it does not matter": on 400 images,
+        # dataloader 12.07 s vs threads 12.31 s, best of 3 -- inside the 19%
+        # run-to-run spread.
+        #
+        # The reason is in experiments/throughput.json: reading is 0.11 s of a
+        # 9.01 s run, i.e. 1.2%. Overlapping reads perfectly could not save more
+        # than that. The budget is 27% compute, 15% startup, 10% write and 46%
+        # framework/Python overhead -- so reads were never the bottleneck and
+        # the thread pool had almost nothing to win.
+        #
+        # So `auto` keeps the previously benchmarked behaviour. --reader threads
+        # stays available for storage where reads ARE slow (network mounts, cold
+        # cache, spinning disks), where the overlap would actually pay.
+        args.reader = "dataloader"
 
     here = os.path.dirname(os.path.abspath(__file__))
     weights = args.weights or os.path.join(here, "weights", "model_fp16.pt")
@@ -330,6 +440,18 @@ def main():
         print(f"[error] no images found in {args.input_dir}", file=sys.stderr)
         sys.exit(1)
     print(f"[info] {len(files)} input images")
+
+    # ---------------- header scan, on a background thread ---------------
+    # Bucketing needs every input's shape, which is 400 file opens. Kick it off
+    # NOW so it runs while torch loads the weights below, instead of adding its
+    # latency to the front of the pipeline.
+    scan = {}
+
+    def _scan():
+        scan["result"] = scan_shapes(files)
+
+    scan_thread = threading.Thread(target=_scan, daemon=True)
+    scan_thread.start()
 
     dev = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     use_cuda = dev.startswith("cuda")
@@ -349,26 +471,14 @@ def main():
     t_init = time.perf_counter()
     print(f"[info] arch={arch} device={dev} startup={t_init - t_start:.2f}s")
 
-    # ---------------- bucket by shape ---------------------------------
-    buckets = {}
-    shapes = {}
-    for f in files:
-        try:
-            if f.lower().endswith(".npy"):
-                with open(f, "rb") as fh:
-                    ver = np.lib.format.read_magic(fh)
-                    rd = (np.lib.format.read_array_header_1_0 if ver[0] == 1
-                          else np.lib.format.read_array_header_2_0)
-                    shp = rd(fh)[0][:2]
-            else:
-                import cv2
-                im = cv2.imread(f, cv2.IMREAD_UNCHANGED)
-                shp = im.shape[:2]
-            shapes[f] = tuple(shp)
-            buckets.setdefault(tuple(shp), []).append(f)
-        except Exception as e:
-            print(f"[warn] cannot read header {os.path.basename(f)}: {e}",
-                  file=sys.stderr)
+    # ---------------- collect the background shape scan ------------------
+    scan_thread.join()
+    shapes, buckets, scan_errors = scan["result"]
+    for e in scan_errors:
+        print(f"[warn] cannot read header {e}", file=sys.stderr)
+    if not buckets:
+        print("[error] no readable images", file=sys.stderr)
+        sys.exit(1)
     print(f"[info] shape buckets: "
           f"{ {f'{k[0]}x{k[1]}': len(v) for k, v in buckets.items()} }")
 
@@ -420,11 +530,15 @@ def main():
     total = 0
     with torch.inference_mode():
         for shp, paths in buckets.items():
-            ld = torch.utils.data.DataLoader(
-                ImageBucket(paths, shapes), batch_size=args.batch_size,
-                shuffle=False, num_workers=args.num_workers,
-                pin_memory=use_cuda, persistent_workers=False)
-            for batch, idxs in ld:
+            if args.reader == "threads":
+                batch_src = threaded_batches(paths, shapes, args.batch_size,
+                                             max(1, args.read_threads))
+            else:
+                batch_src = torch.utils.data.DataLoader(
+                    ImageBucket(paths, shapes), batch_size=args.batch_size,
+                    shuffle=False, num_workers=args.num_workers,
+                    pin_memory=use_cuda, persistent_workers=False)
+            for batch, idxs in batch_src:
                 try:
                     x = batch.to(dev, non_blocking=True)
                     n_real = x.shape[0]
@@ -443,7 +557,9 @@ def main():
                 except Exception as e:
                     errors.append(f"batch {shp}: {e}")
                     continue
-                for k, gi in enumerate(idxs.tolist()):
+                # threaded_batches yields a plain list; DataLoader a tensor
+                idx_list = idxs.tolist() if torch.is_tensor(idxs) else idxs
+                for k, gi in enumerate(idx_list):
                     src = paths[gi]
                     base = os.path.splitext(os.path.basename(src))[0]
                     if args.output_format == "same":

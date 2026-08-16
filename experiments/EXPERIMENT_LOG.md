@@ -31,8 +31,67 @@ KLA benchmarks on an **H100**, so latency measured here does not transfer.
 | **000a** | Aug 6 | `bicubic ×2` | — (floor) | 23.067 | 0.5129 | 0.4425 | 0.7770 | baseline |
 | **000b** | Aug 6 | `BM3D + bicubic ×2` | classical denoise first | 25.956 | 0.6527 | **0.5576** | 0.8451 | baseline — note LPIPS is *worse* than bicubic: BM3D over-smooths, which is exactly the failure the spec warns against |
 | **001** | Aug 6 | `nafnet_w32.yaml` | first trained model | 25.867 | **0.7050** | **0.3006** | 0.8976 | ✅ keep — beats bicubic on all three; beats BM3D on SSIM and LPIPS, trails it 0.09 dB on PSNR |
+| **002** | Aug 7 | `nafnet_w48.yaml` | width 32 → 48, 12 middle blocks, 40 epochs | 26.415 | 0.7333 | 0.2455 | 0.9156 | ✅ shipped as v1 |
+| **003** | Aug 14 | `nafnet_w48_sharp.yaml` | **loss rebalance only** — HF-weighted FFT (0.2→0.6, hf_power 1.5), new high-pass term 0.5, gradient 0.1→0.05, VGG 0→0.05, 40→60 epochs | **26.616** | 0.7344 | **0.2244** | 0.9205 | ✅ **best.** +0.201 dB, LPIPS −8.6%. SSIM unchanged (inside the 0.005 noise band) |
 
-Selected checkpoint: **epoch 36** of 40 (best val SSIM), EMA weights.
+Selected checkpoint: **epoch 36** of 40 (best val SSIM), EMA weights — for run 002.
+
+---
+
+## Run 003 — the loss rebalance, in detail
+
+**Hypothesis.** `scripts/f26_loss_spectrum.py` measured that the v1 composite
+sends only **49.11%** of its gradient into the high-frequency half of the
+spectrum — *less* than plain Charbonnier alone (52.82%). The two terms added for
+sharpness were making it softer: the Sobel `gradient` term measured 22.58%,
+30 points BELOW the term it was meant to sharpen. Predicted v2 emphasis: 61.31%.
+
+**Nothing about the model changed.** Same NAFNet-w48, same 15.24 M parameters,
+same weight format, same inference cost. Training signal only.
+
+### Epoch-matched comparison (rules out the longer schedule as the cause)
+
+| epoch | v1 PSNR | v2 PSNR | v1 LPIPS | v2 LPIPS |
+|---|---|---|---|---|
+| 16 | 26.210 | 26.324 | 0.2593 | 0.2595 |
+| 24 | 26.337 | 26.421 | 0.2492 | 0.2509 |
+| 32 | 26.390 | 26.504 | 0.2459 | 0.2393 |
+| **40** | **26.415** | **26.555** | **0.2455** | **0.2310** |
+| 60 | — | 26.616 | — | 0.2244 |
+
+At v1's own 40-epoch budget v2 is already **+0.140 dB and −5.9% LPIPS**, so the
+gain is the loss change, not the extra 20 epochs. The extra epochs add a further
++0.061 dB and −2.9% LPIPS.
+
+Note v1's LPIPS had stalled — 0.2459 at ep32, *worse* at 0.2467 by ep36, 0.2455
+at ep40. v2 decreases monotonically throughout. The sharpness terms give a
+better-conditioned objective for the perceptual metric.
+
+### All splits (`experiments/eval_results_sharp.json`)
+
+| split | v1 PSNR | v2 PSNR | Δ | v1 LPIPS | v2 LPIPS | Δ% |
+|---|---|---|---|---|---|---|
+| val in-distribution | 26.415 | 26.616 | **+0.201** | 0.2455 | 0.2244 | **−8.6%** |
+| proxy-OOD tonal extremes | 28.376 | 28.603 | **+0.227** | 0.2075 | 0.1825 | **−12.0%** |
+| ood/Urban100 | 24.432 | 24.587 | **+0.156** | 0.2204 | 0.2147 | −2.6% |
+| ood/BSD100 | 26.422 | 26.510 | +0.088 | 0.2494 | 0.2543 | **+2.0%** ⚠️ |
+| ood/Set14 | 26.655 | 26.795 | +0.140 | 0.2110 | 0.2071 | −1.8% |
+
+**Read against this project's own noise thresholds** (`pareto.json`:
+`psnr_noise_dB` 0.15, `ssim_noise` 0.005):
+
+* **PSNR** — real but modest. Above threshold on val, proxy-OOD and Urban100;
+  *within* noise on BSD100 and Set14.
+* **SSIM** — **unchanged.** Every gain is ≤0.0045, inside the noise band. Do not
+  claim an SSIM improvement.
+* **LPIPS** — **the actual win**, and the metric that tracks visible sharpness.
+* ⚠️ **BSD100 LPIPS got 2.0% worse.** The one regression, reported rather than
+  dropped. BSD100 is smooth natural scenery, where pushing high-frequency
+  gradient has least to recover and most to disturb.
+
+**Verdict: promote v2.** It wins PSNR on all five splits and LPIPS on four of
+five, at identical inference cost. The BSD100 LPIPS regression is the honest
+caveat.
 
 ### Proxy-OOD — held-out tonal extremes (824 images)
 

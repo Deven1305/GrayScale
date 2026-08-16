@@ -26,17 +26,23 @@ def _make_weights(path: Path):
 import pytest
 
 
-@pytest.mark.parametrize("workers", [0, 2])
-def test_inference_end_to_end(tmp_path, workers):
-    """Runs with workers=0 AND workers=2.
+@pytest.mark.parametrize("reader,workers", [
+    ("dataloader", 0), ("dataloader", 2), ("threads", 0), ("auto", 0),
+])
+def test_inference_end_to_end(tmp_path, reader, workers):
+    """Both reader backends, and DataLoader with workers=0 AND workers=2.
 
     The multi-worker case is not redundant: DataLoader workers spawn on
     Windows/macOS and pickle the dataset class by reference, so a class defined
     inside main() fails only when num_workers > 0. That bug shipped once and
     was caught by a real run, not by the workers=0 test.
+
+    The threaded reader is covered because it is now the default on spawn
+    platforms, and because it yields plain lists where DataLoader yields
+    tensors -- a difference the output-writing loop has to handle.
     """
-    inp = tmp_path / f"in{workers}"
-    out = tmp_path / f"out{workers}"
+    inp = tmp_path / f"in{reader}{workers}"
+    out = tmp_path / f"out{reader}{workers}"
     inp.mkdir()
     rng = np.random.default_rng(0)
     for i in range(3):
@@ -51,7 +57,7 @@ def test_inference_end_to_end(tmp_path, workers):
     r = subprocess.run(
         [sys.executable, str(ROOT / "inference.py"),
          "--input_dir", str(inp), "--output_dir", str(out),
-         "--weights", str(w), "--batch_size", "2",
+         "--weights", str(w), "--batch_size", "2", "--reader", reader,
          "--num_workers", str(workers), "--device", "cpu"],
         capture_output=True, text=True, timeout=900)
     assert r.returncode == 0, f"inference.py failed:\n{r.stdout}\n{r.stderr}"
