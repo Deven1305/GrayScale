@@ -83,6 +83,18 @@ python inference.py --input_dir sample_test --output_dir out_sample
 
 Should print `wrote 6/6 images` in a few seconds.
 
+If the KLA test data is placed beside this `submission` directory in the
+containing project, the standard relative path also works when launched from
+inside `submission`:
+
+```bash
+python inference.py --input_dir data/Test_NoisyLR/NoisyLR --output_dir outputs
+```
+
+The dataset is intentionally not included in this repository. Validators may
+provide their own input directory; the output directory is created
+automatically if it does not already exist.
+
 > ⚠️ **`git lfs pull` is not optional.** The weights are stored in Git LFS.
 > Without it, `weights/model_fp16.pt` arrives as a ~130-byte text pointer and
 > the run fails. Check with `ls -la weights/` — it must be **~30 MB**.

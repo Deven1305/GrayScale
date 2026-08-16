@@ -401,6 +401,21 @@ def main():
                          "~11.7 s autotune dwarfs the ~8%% per-batch gain. "
                          "Only pays off above roughly 15k images.")
     args = ap.parse_args()
+
+    # The submission entry point is often launched from ``submission/``, while
+    # the repository data directory is its sibling (``../data``).  Keep the
+    # normal relative-path behaviour, but also resolve that common layout so
+    # commands such as ``--input_dir data/Test_NoisyLR/NoisyLR`` work from
+    # either the repository root or the submission directory.
+    if not os.path.isabs(args.input_dir) and not os.path.isdir(args.input_dir):
+        parent_relative = os.path.abspath(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         os.pardir, args.input_dir)
+        )
+        if os.path.isdir(parent_relative):
+            print(f"[info] resolved input_dir={parent_relative}")
+            args.input_dir = parent_relative
+
     args.no_benchmark = not args.cudnn_benchmark
 
     import multiprocessing as _mp
