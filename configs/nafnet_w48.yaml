@@ -6,7 +6,7 @@ model:
   in_ch: 1
   scale: 2
   use_log_channel: true
-  input_transform: log
+  input_transform: asinh
 data:
   root: data
   val_frac: 0.1
